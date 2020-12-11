@@ -1,0 +1,4 @@
+inherit_gem:
+  rubocop-nosolosoftware:
+    - rubocop-default.yml
+    - rubocop-rails.yml
