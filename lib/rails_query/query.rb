@@ -1,5 +1,7 @@
 module RailsQuery
   class Query
+    DEFAULT_PAGE_SIZE = 20
+
     class << self
       attr_reader :model, :fields, :methods, :filters, :default_cols, :relations
     end
@@ -91,11 +93,18 @@ module RailsQuery
       self
     end
 
-    def paginate(page_number, page_size)
-      @page = page_number
-      @offset = (page_number - 1) * page_size
-      @limit = page_size
+    def page(page)
+      @page = page
       self
+    end
+
+    def limit(limit)
+      @limit = limit
+      self
+    end
+
+    def page_offset
+      @page ? (@page - 1) * (@limit || DEFAULT_PAGE_SIZE) : 0
     end
 
     def order(order_hash)
@@ -112,7 +121,7 @@ module RailsQuery
     end
 
     def meta
-      return nil unless @limit && @offset
+      return nil unless @page
 
       count = query.count(:id)
 
@@ -121,7 +130,7 @@ module RailsQuery
         total_pages: count / @limit,
         total_count: count,
         limit_value: @limit,
-        offset_value: @offset
+        offset_value: page_offset
       }
     end
 
@@ -150,7 +159,7 @@ module RailsQuery
     end
 
     def sql
-      query.offset(@offset).limit(@limit).to_sql
+      query.offset(@offset || page_offset).limit(@limit).to_sql
     end
 
     def add_relations(rows)

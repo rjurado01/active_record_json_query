@@ -166,13 +166,13 @@ RSpec.describe RailsQuery do
     end
 
     it 'runs with paginate' do
-      expect(UserQuery.new.paginate(2, 1).run).to eq([
+      expect(UserQuery.new.page(2).limit(1).run).to eq([
         {'id' => @user_2.id, 'name' => @user_2.name}
       ])
     end
 
     it 'runs with meta' do
-      expect(UserQuery.new.paginate(2, 1).meta).to eq({
+      expect(UserQuery.new.page(2).limit(1).meta).to eq({
         current_page: 2,
         total_pages: 2,
         total_count: 2,
