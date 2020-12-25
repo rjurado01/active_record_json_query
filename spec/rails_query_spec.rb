@@ -6,7 +6,15 @@ RSpec.describe RailsQuery do
     self.abstract_class = true
   end
 
+  class Country < ApplicationRecord
+  end
+
+  class Region < ApplicationRecord
+    belongs_to :country
+  end
+
   class User < ApplicationRecord
+    belongs_to :region
     has_many :events_vs_users, class_name: 'EventVsUser'
   end
 
@@ -33,6 +41,8 @@ RSpec.describe RailsQuery do
     field :event_vs_user_event_id, join: :events_vs_users,
                                    column: 'event_id'
 
+    field :country_name, join: {region: :country}
+
     field :fullname, select: "name || ' ' || lastname"
 
     method :now, ->(_row) { Time.new(2020).utc }
@@ -52,18 +62,23 @@ RSpec.describe RailsQuery do
   end
 
   before :all do
-    @u1 = User.create!(name: 'A', lastname: 'AA', age: 16)
-    @u2 = User.create!(name: 'B', lastname: 'BB', age: 60)
+    country_1 = Country.create!(name: 'Spain')
+    country_2 = Country.create!(name: 'France')
+    region_1 = Region.create!(name: 'Andalucía', country: country_1)
+    region_2 = Region.create!(name: 'Picardy', country: country_2)
 
-    t1 = EventType.create!(name: 'Party')
-    t2 = EventType.create!(name: 'Meeting')
+    @user_1 = User.create!(name: 'A', lastname: 'AA', age: 16, region: region_1)
+    @user_2 = User.create!(name: 'B', lastname: 'BB', age: 60, region: region_2)
 
-    @e1 = Event.create!(name: 'Funny Event', event_type_id: t1.id)
-    @e2 = Event.create!(name: 'Boring Event', event_type_id: t2.id)
+    type_1 = EventType.create!(name: 'Party')
+    type_2 = EventType.create!(name: 'Meeting')
 
-    EventVsUser.create(event_id: @e1.id, user_id: @u1.id)
-    EventVsUser.create(event_id: @e1.id, user_id: @u2.id)
-    EventVsUser.create(event_id: @e2.id, user_id: @u1.id)
+    @event_1 = Event.create!(name: 'Funny Event', event_type_id: type_1.id)
+    @event_2 = Event.create!(name: 'Boring Event', event_type_id: type_2.id)
+
+    EventVsUser.create(event_id: @event_1.id, user_id: @user_1.id)
+    EventVsUser.create(event_id: @event_1.id, user_id: @user_2.id)
+    EventVsUser.create(event_id: @event_2.id, user_id: @user_1.id)
   end
 
   it 'has a version number' do
@@ -82,7 +97,7 @@ RSpec.describe RailsQuery do
 
     it 'runs with select' do
       expect(UserQuery.new.select(:lastname, :age).run).to eq(
-        [@u1, @u2].map do |u|
+        [@user_1, @user_2].map do |u|
           {id: u.id, name: u.name, lastname: u.lastname, age: u.age}.stringify_keys
         end
       )
@@ -90,7 +105,7 @@ RSpec.describe RailsQuery do
 
     it 'runs with select using field with select option' do
       expect(UserQuery.new.select(:fullname).run).to eq(
-        [@u1, @u2].map do |u|
+        [@user_1, @user_2].map do |u|
           {id: u.id, name: u.name, fullname: "#{u.name} #{u.lastname}"}.stringify_keys
         end
       )
@@ -98,7 +113,7 @@ RSpec.describe RailsQuery do
 
     it 'runs with select using method' do
       expect(UserQuery.new.select(:now).run).to eq(
-        [@u1, @u2].map do |u|
+        [@user_1, @user_2].map do |u|
           {id: u.id, name: u.name, now: Time.new(2020).utc}.stringify_keys
         end
       )
@@ -106,7 +121,7 @@ RSpec.describe RailsQuery do
 
     it 'runs with select using joined field' do
       expect(EventQuery.new.select(:event_type_name, :type_name).run).to eq(
-        [@e1, @e2].map do |e|
+        [@event_1, @event_2].map do |e|
           {
             id: e.id,
             event_type_name: e.event_type.name,
@@ -116,20 +131,28 @@ RSpec.describe RailsQuery do
       )
     end
 
+    it 'runs with select using 2 levels joined field' do
+      expect(UserQuery.new.select(:country_name).run).to eq(
+        [@user_1, @user_2].map do |u|
+          {id: u.id, name: u.name, country_name: u.region.country.name}.stringify_keys
+        end
+      )
+    end
+
     it 'runs with include' do
       expect(EventQuery.new.include(:users).run).to eq(
         [
           {
-            'id' => @e1.id,
+            'id' => @event_1.id,
             'users' => [
-              {'id' => @u1.id, 'name' => @u1.name},
-              {'id' => @u2.id, 'name' => @u2.name}
+              {'id' => @user_1.id, 'name' => @user_1.name},
+              {'id' => @user_2.id, 'name' => @user_2.name}
             ]
           },
           {
-            'id' => @e2.id,
-            'users'=> [
-              {'id' => @u1.id, 'name' => @u1.name}
+            'id' => @event_2.id,
+            'users' => [
+              {'id' => @user_1.id, 'name' => @user_1.name}
             ]
           }
         ]
@@ -138,13 +161,13 @@ RSpec.describe RailsQuery do
 
     it 'runs with filter' do
       expect(UserQuery.new.filtrate(adult: true).run).to eq([
-        {'id' => @u1.id, 'name' => @u1.name}
+        {'id' => @user_1.id, 'name' => @user_1.name}
       ])
     end
 
     it 'runs with paginate' do
       expect(UserQuery.new.paginate(2, 1).run).to eq([
-        {'id' => @u2.id, 'name' => @u2.name}
+        {'id' => @user_2.id, 'name' => @user_2.name}
       ])
     end
 
@@ -160,7 +183,7 @@ RSpec.describe RailsQuery do
 
     it 'runs with order' do
       expect(UserQuery.new.order(name: 'desc').run).to eq(
-        [@u2, @u1].map do |u|
+        [@user_2, @user_1].map do |u|
           {id: u.id, name: u.name}.stringify_keys
         end
       )
@@ -168,7 +191,7 @@ RSpec.describe RailsQuery do
 
     it 'runs with order by joined field' do
       expect(EventQuery.new.select(:event_type_name).order(event_type_name: 'asc').run).to eq(
-        [@e2, @e1].map do |e|
+        [@event_2, @event_1].map do |e|
           {id: e.id, event_type_name: e.event_type.name}.stringify_keys
         end
       )

@@ -11,10 +11,20 @@ ActiveRecord::Base.establish_connection(
   adapter: 'sqlite3', database: 'db/rails_query.sqlite3'
 )
 
+ActiveRecord::Base.connection.create_table(:countries, force: true) do |t|
+  t.string :name
+end
+
+ActiveRecord::Base.connection.create_table(:regions, force: true) do |t|
+  t.string :name
+  t.belongs_to :country
+end
+
 ActiveRecord::Base.connection.create_table(:users, force: true) do |t|
   t.string :name
   t.string :lastname
   t.integer :age
+  t.belongs_to :region
 end
 
 ActiveRecord::Base.connection.create_table(:events, force: true) do |t|
