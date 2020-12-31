@@ -31,6 +31,12 @@ RSpec.describe RailsQuery do
     self.table_name = :events_vs_users
   end
 
+  class RegionQuery < RailsQuery::Query
+    model Region
+
+    field :name
+  end
+
   class UserQuery < RailsQuery::Query
     model User
 
@@ -43,7 +49,11 @@ RSpec.describe RailsQuery do
 
     field :country_name, join: {region: :country}
 
+    field :region_id
+
     field :fullname, select: "name || ' ' || lastname"
+
+    link_one :region, query: RegionQuery, key: :region_id
 
     method :now, ->(_row) { Time.new(2020).utc }
 
@@ -58,7 +68,10 @@ RSpec.describe RailsQuery do
     field :event_type_name, join: :event_type
     field :type_name, join: :event_type, table: 'event_types', column: 'name'
 
-    relation :users, query: UserQuery, through: :event_vs_user_event_id
+    link_many :users, query: UserQuery, key: :event_vs_user_event_id
+  end
+
+  class EventVsUserQuery < RailsQuery::Query
   end
 
   before :all do
@@ -69,6 +82,7 @@ RSpec.describe RailsQuery do
 
     @user_1 = User.create!(name: 'A', lastname: 'AA', age: 16, region: region_1)
     @user_2 = User.create!(name: 'B', lastname: 'BB', age: 60, region: region_2)
+    # @user_3 = User.create!(name: 'C', lastname: 'CC', age: 60, region: region_2)
 
     type_1 = EventType.create!(name: 'Party')
     type_2 = EventType.create!(name: 'Meeting')
@@ -120,10 +134,11 @@ RSpec.describe RailsQuery do
     end
 
     it 'runs with select using joined field' do
-      expect(EventQuery.new.select(:event_type_name, :type_name).run).to eq(
+      expect(EventQuery.new.select(:name, :event_type_name, :type_name).run).to eq(
         [@event_1, @event_2].map do |e|
           {
             id: e.id,
+            name: e.name,
             event_type_name: e.event_type.name,
             type_name: e.event_type.name
           }.stringify_keys
@@ -139,21 +154,38 @@ RSpec.describe RailsQuery do
       )
     end
 
-    it 'runs with include' do
-      expect(EventQuery.new.include(:users).run).to eq(
+    it 'runs with include using has_many link' do
+      expect(EventQuery.new.include(users: [:lastname]).run).to eq(
         [
           {
             'id' => @event_1.id,
             'users' => [
-              {'id' => @user_1.id, 'name' => @user_1.name},
-              {'id' => @user_2.id, 'name' => @user_2.name}
+              {'id' => @user_1.id, 'name' => @user_1.name, 'lastname' => @user_1.lastname},
+              {'id' => @user_2.id, 'name' => @user_2.name, 'lastname' => @user_2.lastname}
             ]
           },
           {
             'id' => @event_2.id,
             'users' => [
-              {'id' => @user_1.id, 'name' => @user_1.name}
+              {'id' => @user_1.id, 'name' => @user_1.name, 'lastname' => @user_1.lastname}
             ]
+          }
+        ]
+      )
+    end
+
+    it 'runs with include using belongs_to link' do
+      expect(UserQuery.new.include(:region).run).to eq(
+        [
+          {
+            'id' => @user_1.id,
+            'name' => @user_1.name,
+            'region' => {'id' => @user_1.region.id}
+          },
+          {
+            'id' => @user_2.id,
+            'name' => @user_2.name,
+            'region' => {'id' => @user_2.region.id}
           }
         ]
       )

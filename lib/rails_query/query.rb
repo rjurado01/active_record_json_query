@@ -3,85 +3,91 @@ module RailsQuery
     DEFAULT_PAGE_SIZE = 20
 
     class << self
-      attr_reader :model, :fields, :methods, :filters, :default_cols, :relations
+      attr_reader :fields, :links, :methods, :filters
+
+      def inherited(child)
+        child.instance_variable_set(:@fields, {})
+        child.instance_variable_set(:@links, {})
+        child.instance_variable_set(:@methods, {})
+        child.instance_variable_set(:@filters, {})
+      end
     end
 
     def self.model(model=nil)
-      model ? @model = model : @model
+      return @model unless model
+
+      @model = model
+
+      # add default id field
+      fields['id'] = Field.new('id', default: true, table: @model.table_name)
+
+      @model
     end
 
     def self.field(name, options={})
-      name = name.to_s
+      options[:table] ||= model.table_name unless options[:join]
 
-      if options[:join]
-        relation = join_relation(options[:join])
-        options[:table] ||= relation.pluralize
-        options[:column] ||= name.remove("#{relation}_")
-        options[:path] ||= "#{options[:table]}.#{options[:column]}"
-        options[:select] = "#{options[:path]} as #{name}"
-      elsif options[:select]
-        options[:select] = "#{ActiveRecord::Base.sanitize_sql(options[:select])} as #{name}"
-      else
-        options[:column] ||= name
-        options[:select] = options[:column] == name ? name : "#{options[:column]} as #{name}"
-      end
+      field = Field.new(name, options)
+      @fields[field.name] = field
 
-      @fields ||= {'id' => {select: 'id'}}
-      @fields[name.to_s] = options
-
-      @default_cols ||= ['id']
-      @default_cols.push(name.to_s) if options[:default]
-
-      filter(name.to_s, options.delete(:filter)) if options[:filter]
-    end
-
-    def self.join_relation(join)
-      (join.is_a?(Hash) ? join.values.last : join).to_s
+      filter(field.name, options[:filter]) if options[:filter]
     end
 
     def self.filter(name, filter)
-      @filters ||= {}
+      @filters ||= {id: ->(val) { where(id: val) }}
       @filters[name.to_s] = filter
     end
 
-    def self.relation(name, options)
-      @relations ||= {}
-      @relations[name.to_s] = {
+    def self.link_one(name, options)
+      link(name, options.merge(type: :one))
+    end
+
+    def self.link_many(name, options)
+      link(name, options.merge(type: :many))
+    end
+
+    def self.link(name, options={})
+      key = options[:key].to_s
+
+      @links[name.to_s] = {
+        type: options[:type] || :many,
         query: options[:query],
-        through: options[:through].to_s
+        key: key,
+        key_on_link: fields[key] ? false : true
       }
     end
 
     def self.method(name, method)
-      @methods ||= {}
       @methods[name.to_s] = method
     end
 
     def initialize
-      @select_cols = self.class.default_cols
+      @select_fields = self.class.fields.values.select(&:default).map(&:name)
       @select_methods = []
       @includes = {}
       @offset = nil
       @limit = nil
+      @distinct = nil
       @query = {}
     end
 
-    def select(*cols)
-      cols = cols.flatten.map(&:to_s)
-      @select_cols += cols & self.class.fields.keys
-      @select_methods += cols & self.class.methods.keys if self.class.methods&.any?
+    def select(*names)
+      names = names.flatten.map(&:to_s)
+      @select_fields += names & self.class.fields.keys
+      @select_methods += names & self.class.methods.keys if self.class.methods&.any?
 
       self
     end
 
-    def include(*relations)
-      relations.each do |relation|
-        if relation.is_a?(Hash)
-          key, cols = relation.first
-          @includes[key.to_s] = cols.is_a?(Array) ? cols.map(&:to_s) : [cols.to_s]
-        else
-          @includes[relation.to_s] = []
-        end
+    # eg: include([:model1, model2: [:field1, :field2]])
+    def include(*select_links)
+      select_links.each do |select_link|
+        name, cols = select_link.is_a?(Hash) ? select_link.first : [select_link, []]
+        name = name.to_s
+        link = self.class.links[name]
+
+        @includes[name] = cols.is_a?(Array) ? cols.map(&:to_s) : [cols.to_s]
+        select(link[:key]) unless link[:key_on_link]
       end
 
       self
@@ -112,8 +118,18 @@ module RailsQuery
       self
     end
 
+    def distinct(value=true)
+      @distinct = value
+      self
+    end
+
+    def group(value)
+      @group = value
+      self
+    end
+
     def run
-      add_relations(
+      add_links(
         add_methods(
           ActiveRecord::Base.connection.execute(sql).to_a
         )
@@ -123,7 +139,8 @@ module RailsQuery
     def meta
       return nil unless @page
 
-      count = query.count(:id)
+      offset = (@page ? page_offset : @offset) || 0
+      count = query.count(:id) + offset
 
       {
         current_page: @page,
@@ -138,11 +155,11 @@ module RailsQuery
       q_cols = []
       q_joins = Set.new
 
-      @select_cols.each do |col|
-        field = self.class.fields[col]
+      @select_fields.each do |field_name|
+        field = self.class.fields[field_name]
 
-        q_cols.push(field[:select])
-        q_joins.add(field[:join]) if field[:join]
+        q_cols.push(field.select)
+        q_joins.add(field.join) if field.join
       end
 
       query = self.class.model.select(q_cols).joins(q_joins.to_a).order(@order)
@@ -150,35 +167,59 @@ module RailsQuery
       @query.each do |key, val|
         filter = self.class.filters[key.to_s]
 
-        next unless filter && filter.is_a?(Proc)
-
-        query = query.instance_exec(val, &filter)
+        if filter.is_a?(Proc)
+          query = query.instance_exec(val, &filter)
+        elsif (field = self.class.fields[key])
+          query = query.where(field.path || key => val)
+        else
+          raise StandardError.new "Filter :#{key} not found for #{self.class}"
+        end
       end
+
+      query = query.distinct(@distinct) if @distinct
+      query = query.distinct(@group) if @group
+      query = query.offset(page_offset) if @page
+      query = query.offset(@offset) if @offset
+      query = query.limit(@limit) if @limit
 
       query
     end
 
     def sql
-      query.offset(@offset || page_offset).limit(@limit).to_sql
+      query.to_sql
     end
 
-    def add_relations(rows)
+    private
+
+    def add_links(rows)
       return rows unless @includes
 
-      ids = rows.map { |x| x['id'] }
-
       @includes.each do |key, cols|
-        next unless (relation = self.class.relations[key])
+        next unless (link = self.class.links[key])
 
-        cols.push(relation[:through])
+        cols.push(link[:key]) if link[:key_on_link]
 
-        results = relation[:query].new.select(cols).filtrate(relation[:through] => ids).run
+        ids_key, link_key = if link[:key_on_link]
+                              ['id', link[:key]]
+                            else
+                              [link[:key], 'id']
+                            end
+
+        ids = rows.map { |x| x[ids_key] }.uniq
+        results = link[:query].new.select(cols).filtrate(link_key => ids).run
 
         rows = rows.map do |row|
-          row[key] = []
+          if link[:type] == :many
+            row[key] = []
 
-          results.each do |x|
-            row[key].push(x.except(relation[:through])) if x[relation[:through]] == row['id']
+            results.each do |x|
+              next if x[link_key] != row[ids_key]
+
+              row[key].push(link[:key_on_link] ? x.except(link[:key]) : x)
+            end
+          else
+            row[key] = results.find { |x| x['id'] == row[link[:key]] }
+            row.delete link[:key]
           end
 
           row
