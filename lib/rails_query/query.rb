@@ -18,8 +18,9 @@ module RailsQuery
 
       @model = model
 
-      # add default id field
+      # add default id field and filter
       fields['id'] = Field.new('id', default: true, table: @model.table_name)
+      filters['id'] = Filter.new('id', type: :equal, field: fields['id'])
 
       @model
     end
@@ -30,12 +31,20 @@ module RailsQuery
       field = Field.new(name, options)
       @fields[field.name] = field
 
-      filter(field.name, options[:filter]) if options[:filter]
+      return unless options[:filter]
+
+      filter(field.name, options.is_a?(Proc) ? options : {type: options[:filter]})
     end
 
-    def self.filter(name, filter)
-      @filters ||= {id: ->(val) { where(id: val) }}
-      @filters[name.to_s] = filter
+    def self.filter(name, options)
+      name = name.to_s
+
+      if options.is_a?(Hash)
+        field_name = options[:field]&.to_s || name
+        options[:field] = fields[field_name]
+      end
+
+      @filters[name] = Filter.new(name, options)
     end
 
     def self.link_one(name, options)
@@ -62,19 +71,19 @@ module RailsQuery
     end
 
     def initialize
-      @select_fields = self.class.fields.values.select(&:default).map(&:name)
-      @select_methods = []
-      @includes = {}
-      @offset = nil
-      @limit = nil
-      @distinct = nil
-      @query = {}
+      @query_fields = self.class.fields.values.select(&:default).map(&:name)
+      @query_methods = []
+      @query_filters = {}
+      @query_includes = {}
+      @query_offset = nil
+      @query_limit = nil
+      @query_distinct = nil
     end
 
     def select(*names)
       names = names.flatten.map(&:to_s)
-      @select_fields += names & self.class.fields.keys
-      @select_methods += names & self.class.methods.keys if self.class.methods&.any?
+      @query_fields += names & self.class.fields.keys
+      @query_methods += names & self.class.methods.keys if self.class.methods&.any?
 
       self
     end
@@ -86,7 +95,7 @@ module RailsQuery
         name = name.to_s
         link = self.class.links[name]
 
-        @includes[name] = cols.is_a?(Array) ? cols.map(&:to_s) : [cols.to_s]
+        @query_includes[name] = cols.is_a?(Array) ? cols.map(&:to_s) : [cols.to_s]
         select(link[:key]) unless link[:key_on_link]
       end
 
@@ -94,7 +103,7 @@ module RailsQuery
     end
 
     def filtrate(query)
-      @query = query
+      @query_filters = query
 
       self
     end
@@ -105,12 +114,12 @@ module RailsQuery
     end
 
     def limit(limit)
-      @limit = limit
+      @query_limit = limit
       self
     end
 
     def page_offset
-      @page ? (@page - 1) * (@limit || DEFAULT_PAGE_SIZE) : 0
+      @page ? (@page - 1) * (@query_limit || DEFAULT_PAGE_SIZE) : 0
     end
 
     def order(order_hash)
@@ -119,7 +128,7 @@ module RailsQuery
     end
 
     def distinct(value=true)
-      @distinct = value
+      @query_distinct = value
       self
     end
 
@@ -139,62 +148,56 @@ module RailsQuery
     def meta
       return nil unless @page
 
-      offset = (@page ? page_offset : @offset) || 0
-      count = query.count(:id) + offset
+      offset = (@page ? page_offset : @query_offset) || 0
+      count = ar_query.count(:id) + offset
 
       {
         current_page: @page,
-        total_pages: count / @limit,
+        total_pages: count / @query_limit,
         total_count: count,
-        limit_value: @limit,
+        limit_value: @query_limit,
         offset_value: page_offset
       }
     end
 
-    def query
+    def ar_query
       q_cols = []
       q_joins = Set.new
 
-      @select_fields.each do |field_name|
-        field = self.class.fields[field_name]
-
-        q_cols.push(field.select)
-        q_joins.add(field.join) if field.join
-      end
-
-      query = self.class.model.select(q_cols).joins(q_joins.to_a).order(@order)
-
-      @query.each do |key, val|
-        filter = self.class.filters[key.to_s]
-
-        if filter.is_a?(Proc)
-          query = query.instance_exec(val, &filter)
-        elsif (field = self.class.fields[key])
-          query = query.where(field.path || key => val)
-        else
-          raise StandardError.new "Filter :#{key} not found for #{self.class}"
+      @query_fields.each do |field_name|
+        if (field = self.class.fields[field_name])
+          q_cols.push(field.select)
+          q_joins.add(field.join) if field.join
         end
       end
 
-      query = query.distinct(@distinct) if @distinct
-      query = query.distinct(@group) if @group
-      query = query.offset(page_offset) if @page
-      query = query.offset(@offset) if @offset
-      query = query.limit(@limit) if @limit
+      ar_query = self.class.model.select(q_cols).joins(q_joins.to_a)
 
-      query
+      @query_filters.each do |key, val|
+        if (filter = self.class.filters[key.to_s])
+          ar_query = filter.apply(ar_query, val)
+        end
+      end
+
+      ar_query = ar_query.distinct(@query_distinct) if @query_distinct
+      ar_query = ar_query.order(@order) if @order
+      ar_query = ar_query.offset(page_offset) if @page
+      ar_query = ar_query.offset(@query_offset) if @query_offset
+      ar_query = ar_query.limit(@query_limit) if @query_limit
+
+      ar_query
     end
 
     def sql
-      query.to_sql
+      ar_query.to_sql
     end
 
     private
 
     def add_links(rows)
-      return rows unless @includes
+      return rows unless @query_includes
 
-      @includes.each do |key, cols|
+      @query_includes.each do |key, cols|
         next unless (link = self.class.links[key])
 
         cols.push(link[:key]) if link[:key_on_link]
@@ -231,7 +234,7 @@ module RailsQuery
 
     def add_methods(rows)
       return rows unless self.class.methods
-      return rows unless (select_methods = @select_methods & self.class.methods.keys).any?
+      return rows unless (select_methods = @query_methods & self.class.methods.keys).any?
 
       rows.map do |row|
         select_methods.each do |name|

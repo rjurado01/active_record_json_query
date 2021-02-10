@@ -41,7 +41,7 @@ RSpec.describe RailsQuery do
     model User
 
     field :name, default: true
-    field :lastname
+    field :lastname, filter: :contain
     field :age
 
     field :event_vs_user_event_id, join: :events_vs_users,
@@ -58,6 +58,10 @@ RSpec.describe RailsQuery do
     method :now, ->(_row) { Time.new(2020).utc }
 
     filter :adult, ->(_val) { where(age: 1..17) }
+
+    filter :age_gt, type: :gt, field: :age
+    filter :age_lt, type: :lt, field: :age
+    filter :age_range, type: :range, field: :age
   end
 
   class EventQuery < RailsQuery::Query
@@ -191,9 +195,37 @@ RSpec.describe RailsQuery do
       )
     end
 
-    it 'runs with filter' do
+    it 'runs with filter of type :proc' do
       expect(UserQuery.new.filtrate(adult: true).run).to eq([
         {'id' => @user_1.id, 'name' => @user_1.name}
+      ])
+    end
+
+    it 'runs with filter of type :contains' do
+      expect(UserQuery.new.filtrate(lastname: 'B').run).to eq([
+        {'id' => @user_2.id, 'name' => @user_2.name}
+      ])
+    end
+
+    it 'runs with filter of type :gt' do
+      expect(UserQuery.new.filtrate(age_gt: 20).run).to eq([
+        {'id' => @user_2.id, 'name' => @user_2.name}
+      ])
+    end
+
+    it 'runs with filter of type :lt' do
+      expect(UserQuery.new.filtrate(age_lt: 20).run).to eq([
+        {'id' => @user_1.id, 'name' => @user_1.name}
+      ])
+    end
+
+    it 'runs with filter of type :range' do
+      expect(UserQuery.new.filtrate(age_range: [10, 20]).run).to eq([
+        {'id' => @user_1.id, 'name' => @user_1.name}
+      ])
+
+      expect(UserQuery.new.filtrate(age_range: 30..100).run).to eq([
+        {'id' => @user_2.id, 'name' => @user_2.name}
       ])
     end
 
