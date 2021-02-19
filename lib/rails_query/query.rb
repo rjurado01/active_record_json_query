@@ -109,7 +109,7 @@ module RailsQuery
     end
 
     def page(page)
-      @page = page
+      @query_page = page
       self
     end
 
@@ -119,11 +119,11 @@ module RailsQuery
     end
 
     def page_offset
-      @page ? (@page - 1) * (@query_limit || DEFAULT_PAGE_SIZE) : 0
+      @query_page ? (@query_page - 1) * (@query_limit || DEFAULT_PAGE_SIZE) : 0
     end
 
     def order(order_hash)
-      @order = order_hash
+      @query_order = order_hash
       self
     end
 
@@ -146,13 +146,13 @@ module RailsQuery
     end
 
     def meta
-      return nil unless @page
+      return nil unless @query_page
 
-      offset = (@page ? page_offset : @query_offset) || 0
+      offset = (@query_page ? page_offset : @query_offset) || 0
       count = ar_query.count(:id) + offset
 
       {
-        current_page: @page,
+        current_page: @query_page,
         total_pages: count / @query_limit,
         total_count: count,
         limit_value: @query_limit,
@@ -180,8 +180,8 @@ module RailsQuery
       end
 
       ar_query = ar_query.distinct(@query_distinct) if @query_distinct
-      ar_query = ar_query.order(@order) if @order
-      ar_query = ar_query.offset(page_offset) if @page
+      ar_query = ar_query.order(@query_order) if @query_order
+      ar_query = ar_query.offset(page_offset) if @query_page
       ar_query = ar_query.offset(@query_offset) if @query_offset
       ar_query = ar_query.limit(@query_limit) if @query_limit
 
@@ -233,11 +233,10 @@ module RailsQuery
     end
 
     def add_methods(rows)
-      return rows unless self.class.methods
-      return rows unless (select_methods = @query_methods & self.class.methods.keys).any?
+      return rows unless self.class.methods && @query_methods.any?
 
       rows.map do |row|
-        select_methods.each do |name|
+        @query_methods.each do |name|
           row[name] = self.class.methods[name].call(row)
         end
 
