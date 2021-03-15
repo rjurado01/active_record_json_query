@@ -2,3 +2,19 @@ inherit_gem:
   rubocop-nosolosoftware:
     - rubocop-default.yml
     - rubocop-rails.yml
+    - rubocop-rspec.yml
+
+RSpec/BeforeAfterAll:
+  Enabled: false
+
+RSpec/InstanceVariable:
+  Enabled: false
+
+RSpec/MultipleExpectations:
+  Enabled: false
+
+RSpec/ExampleLength:
+  Enabled: false
+
+RSpec/LeakyConstantDeclaration:
+  Enabled: false

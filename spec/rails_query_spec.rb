@@ -45,7 +45,8 @@ RSpec.describe RailsQuery do
     field :age
 
     field :event_vs_user_event_id, join: :events_vs_users,
-                                   column: 'event_id'
+                                   column: 'event_id',
+                                   count: 'events_count'
 
     field :country_name, join: {region: :country}
 
@@ -86,7 +87,6 @@ RSpec.describe RailsQuery do
 
     @user_1 = User.create!(name: 'A', lastname: 'AA', age: 16, region: region_1)
     @user_2 = User.create!(name: 'B', lastname: 'BB', age: 60, region: region_2)
-    # @user_3 = User.create!(name: 'C', lastname: 'CC', age: 60, region: region_2)
 
     type_1 = EventType.create!(name: 'Party')
     type_2 = EventType.create!(name: 'Meeting')
@@ -146,6 +146,14 @@ RSpec.describe RailsQuery do
             event_type_name: e.event_type.name,
             type_name: e.event_type.name
           }.stringify_keys
+        end
+      )
+    end
+
+    it 'runs with select using count field' do
+      expect(UserQuery.new.select(:events_count).run).to eq(
+        [@user_1, @user_2].map do |u|
+          {id: u.id, name: u.name, events_count: u.events_vs_users.size}.stringify_keys
         end
       )
     end
@@ -236,13 +244,15 @@ RSpec.describe RailsQuery do
     end
 
     it 'runs with meta' do
-      expect(UserQuery.new.page(2).limit(1).meta).to eq({
-        current_page: 2,
-        total_pages: 2,
-        total_count: 2,
-        limit_value: 1,
-        offset_value: 1
-      })
+      expect(UserQuery.new.page(2).limit(1).meta).to eq(
+        {
+          current_page: 2,
+          total_pages: 2,
+          total_count: 2,
+          limit_value: 1,
+          offset_value: 1
+        }
+      )
     end
 
     it 'runs with order' do

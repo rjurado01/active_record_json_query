@@ -28,12 +28,20 @@ module RailsQuery
     def self.field(name, options={})
       options[:table] ||= model.table_name unless options[:join]
 
+      count = options.delete(:count)
       field = Field.new(name, options)
       @fields[field.name] = field
 
-      return unless options[:filter]
+      if options[:filter]
+        filter(field.name, options.is_a?(Proc) ? options : {type: options[:filter]})
+      end
 
-      filter(field.name, options.is_a?(Proc) ? options : {type: options[:filter]})
+      if count
+        count_field = Field.new(count, options.merge(count: true))
+        @fields[count_field.name] = count_field
+      end
+
+      self
     end
 
     def self.filter(name, options)
@@ -168,6 +176,8 @@ module RailsQuery
         if (field = self.class.fields[field_name])
           q_cols.push(field.select)
           q_joins.add(field.join) if field.join
+
+          @query_group = self.class.fields['id'].path if field.count
         end
       end
 
@@ -180,6 +190,7 @@ module RailsQuery
       end
 
       ar_query = ar_query.distinct(@query_distinct) if @query_distinct
+      ar_query = ar_query.group(@query_group) if @query_group
       ar_query = ar_query.order(@query_order) if @query_order
       ar_query = ar_query.offset(page_offset) if @query_page
       ar_query = ar_query.offset(@query_offset) if @query_offset

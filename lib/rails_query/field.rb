@@ -5,6 +5,7 @@ module RailsQuery
                 :column, # table column
                 :select, # sql select sentence to obtain field
                 :join, # ActiveRecord::QueryMethods.joins arguments
+                :count,
                 :default # field is returned always
 
     def initialize(name, options)
@@ -33,8 +34,14 @@ module RailsQuery
       relation = join_relation(options[:join])
 
       @table ||= relation.pluralize
-      @column ||= @name.remove("#{relation}_")
-      @select = "#{path} as #{name}"
+
+      if options[:count]
+        @count = options[:count].present?
+        @select = "count(#{path}) as #{name}"
+      else
+        @column ||= @name.remove("#{relation}_")
+        @select = "#{path} as #{name}"
+      end
     end
 
     # returns join last table
