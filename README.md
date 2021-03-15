@@ -1,8 +1,14 @@
 # RailsQuery
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/rails_query`. To experiment with that code, run `bin/console` for an interactive prompt.
+Layer above ActiveRecord to define your models query interface.
 
-TODO: Delete this and the text above, and describe your gem
+### Features
+
+* Define fields
+* Define filters
+* Define links
+* Define methods
+* Get database response directly without model instances
 
 ## Installation
 
