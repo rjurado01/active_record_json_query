@@ -58,7 +58,7 @@ RSpec.describe RailsQuery do
 
     method :now, ->(_row) { Time.new(2020).utc }
 
-    filter :adult, ->(_val) { where(age: 1..17) }
+    filter :under_age, ->(_val) { where(age: 1..17) }
 
     filter :age_gt, type: :gt, field: :age
     filter :age_lt, type: :lt, field: :age
@@ -204,7 +204,7 @@ RSpec.describe RailsQuery do
     end
 
     it 'runs with filter of type :proc' do
-      expect(UserQuery.new.filtrate(adult: true).run).to eq([
+      expect(UserQuery.new.filtrate(under_age: true).run).to eq([
         {'id' => @user_1.id, 'name' => @user_1.name}
       ])
     end

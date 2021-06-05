@@ -26,6 +26,42 @@ Or install it yourself as:
 
     $ gem install rails_query
 
+## Example
+
+```ruby
+class UserQuery < RailsQuery::Query
+  model User
+
+  field :name, default: true
+  field :lastname, filter: :contain
+  field :age
+
+  field :country_name, join: {region: :country}
+
+  field :fullname, select: "name || ' ' || lastname"
+
+  field :region_id
+
+  link_one :region, query: RegionQuery, key: :region_id
+
+  method :now, ->(_row) { Time.new(2020).utc }
+
+  filter :under_age, ->(_val) { where(age: 1..17) }
+
+  filter :age_gt, type: :gt, field: :age
+  filter :age_lt, type: :lt, field: :age
+  filter :age_range, type: :range, field: :age
+end
+
+UserQuery.new.select(:country_name)
+             .include(:region)
+             .filtrate(under_age: true)
+             .page(2)
+             .limit(1)
+             .order(name: 'desc')
+             .run
+```
+
 ## Usage
 
 TODO: Write usage instructions here
