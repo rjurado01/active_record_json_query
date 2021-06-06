@@ -42,6 +42,35 @@ ActiveRecord::Base.connection.create_table(:events_vs_users, force: true) do |t|
   t.belongs_to :event
 end
 
+class ApplicationRecord < ActiveRecord::Base
+  self.abstract_class = true
+end
+
+class Country < ApplicationRecord
+end
+
+class Region < ApplicationRecord
+  belongs_to :country
+end
+
+class User < ApplicationRecord
+  belongs_to :region
+  has_many :events_vs_users, class_name: 'EventVsUser'
+end
+
+class Event < ApplicationRecord
+  belongs_to :event_type
+
+  has_many :events_vs_users, class_name: 'EventVsUser'
+end
+
+class EventType < ApplicationRecord
+end
+
+class EventVsUser < ApplicationRecord
+  self.table_name = :events_vs_users
+end
+
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
   config.example_status_persistence_file_path = ".rspec_status"
@@ -51,5 +80,9 @@ RSpec.configure do |config|
 
   config.expect_with :rspec do |c|
     c.syntax = :expect
+  end
+
+  config.before :all do
+    [EventVsUser, Event, User, Region, Country].each(&:destroy_all)
   end
 end

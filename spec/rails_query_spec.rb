@@ -2,81 +2,51 @@
 require 'spec_helper'
 
 RSpec.describe RailsQuery do
-  class ApplicationRecord < ActiveRecord::Base
-    self.abstract_class = true
-  end
+  before do
+    stub_const('RegionQuery', Class.new(RailsQuery::Query) do
+      model Region
 
-  class Country < ApplicationRecord
-  end
+      field :name
+    end)
 
-  class Region < ApplicationRecord
-    belongs_to :country
-  end
+    stub_const('UserQuery', Class.new(RailsQuery::Query) do
+      model User
 
-  class User < ApplicationRecord
-    belongs_to :region
-    has_many :events_vs_users, class_name: 'EventVsUser'
-  end
+      field :name, default: true
+      field :lastname, filter: :contain
+      field :age
 
-  class Event < ApplicationRecord
-    belongs_to :event_type
+      field :event_vs_user_event_id, join: :events_vs_users,
+                                     column: 'event_id',
+                                     count: 'events_count'
 
-    has_many :events_vs_users, class_name: 'EventVsUser'
-  end
+      field :country_name, join: {region: :country}
 
-  class EventType < ApplicationRecord
-  end
+      field :region_id
 
-  class EventVsUser < ApplicationRecord
-    self.table_name = :events_vs_users
-  end
+      field :fullname, select: "name || ' ' || lastname"
 
-  class RegionQuery < RailsQuery::Query
-    model Region
+      link_one :region, query: RegionQuery, key: :region_id
 
-    field :name
-  end
+      method :now, ->(_row) { Time.new(2020).utc }
 
-  class UserQuery < RailsQuery::Query
-    model User
+      filter :under_age, ->(_val) { where(age: 1..17) }
 
-    field :name, default: true
-    field :lastname, filter: :contain
-    field :age
+      filter :age_gt, type: :gt, field: :age
+      filter :age_lt, type: :lt, field: :age
+      filter :age_range, type: :range, field: :age
+    end)
 
-    field :event_vs_user_event_id, join: :events_vs_users,
-                                   column: 'event_id',
-                                   count: 'events_count'
+    stub_const('EventQuery', Class.new(RailsQuery::Query) do
+      model Event
 
-    field :country_name, join: {region: :country}
+      field :name
+      field :date
+      field :event_type_name, join: :event_type
+      field :type_name, join: :event_type, table: 'event_types', column: 'name'
 
-    field :region_id
-
-    field :fullname, select: "name || ' ' || lastname"
-
-    link_one :region, query: RegionQuery, key: :region_id
-
-    method :now, ->(_row) { Time.new(2020).utc }
-
-    filter :under_age, ->(_val) { where(age: 1..17) }
-
-    filter :age_gt, type: :gt, field: :age
-    filter :age_lt, type: :lt, field: :age
-    filter :age_range, type: :range, field: :age
-  end
-
-  class EventQuery < RailsQuery::Query
-    model Event
-
-    field :name
-    field :date
-    field :event_type_name, join: :event_type
-    field :type_name, join: :event_type, table: 'event_types', column: 'name'
-
-    link_many :users, query: UserQuery, key: :event_vs_user_event_id
-  end
-
-  class EventVsUserQuery < RailsQuery::Query
+      link_many :users, query: UserQuery, key: :event_vs_user_event_id
+    end)
   end
 
   before :all do
@@ -106,8 +76,8 @@ RSpec.describe RailsQuery do
   describe 'queries' do
     it 'runs default' do
       expect(UserQuery.new.run).to eq([
-        {'id' => 1, 'name' => 'A'},
-        {'id' => 2, 'name' => 'B'}
+        {'id' => @user_1.id, 'name' => @user_1.name},
+        {'id' => @user_2.id, 'name' => @user_2.name}
       ])
 
       expect(EventQuery.new.run).to eq([{'id' => 1}, {'id' => 2}])
