@@ -20,6 +20,8 @@ RSpec.describe RailsQuery do
                                      column: 'event_id',
                                      count: 'events_count'
 
+      field :event_points, join: {events_vs_users: :event}, select: 'SUM(events.points)'
+
       field :country_name, join: {region: :country}
 
       field :region_id
@@ -61,8 +63,8 @@ RSpec.describe RailsQuery do
     type_1 = EventType.create!(name: 'Party')
     type_2 = EventType.create!(name: 'Meeting')
 
-    @event_1 = Event.create!(name: 'Funny Event', event_type_id: type_1.id)
-    @event_2 = Event.create!(name: 'Boring Event', event_type_id: type_2.id)
+    @event_1 = Event.create!(name: 'Funny Event', event_type_id: type_1.id, points: 2)
+    @event_2 = Event.create!(name: 'Boring Event', event_type_id: type_2.id, points: 2)
 
     EventVsUser.create(event_id: @event_1.id, user_id: @user_1.id)
     EventVsUser.create(event_id: @event_1.id, user_id: @user_2.id)
@@ -75,6 +77,7 @@ RSpec.describe RailsQuery do
 
   describe 'queries' do
     it 'runs default' do
+      binding.pry
       expect(UserQuery.new.run).to eq([
         {'id' => @user_1.id, 'name' => @user_1.name},
         {'id' => @user_2.id, 'name' => @user_2.name}
