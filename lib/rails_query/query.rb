@@ -28,17 +28,11 @@ module RailsQuery
     def self.field(name, options={})
       options[:table] ||= model.table_name unless options[:join]
 
-      count = options.delete(:count)
       field = Field.new(name, options)
       @fields[field.name] = field
 
       if options[:filter]
         filter(field.name, options.is_a?(Proc) ? options : {type: options[:filter]})
-      end
-
-      if count
-        count_field = Field.new(count, options.merge(count: true))
-        @fields[count_field.name] = count_field
       end
 
       self
@@ -141,7 +135,7 @@ module RailsQuery
     end
 
     def group(value)
-      @group = value
+      @query_group = value
       self
     end
 
@@ -177,7 +171,7 @@ module RailsQuery
           q_cols.push(field.select)
           q_joins.add(field.join) if field.join
 
-          @query_group = self.class.fields['id'].path if field.count
+          @query_group = self.class.fields['id'].path if field.group
         end
       end
 

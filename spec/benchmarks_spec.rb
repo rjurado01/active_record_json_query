@@ -2,6 +2,7 @@
 require 'spec_helper'
 require 'benchmark'
 
+# used to make tests
 RSpec.describe 'Benchmarks' do
   before do
     stub_const('BenchmarkQuery', Class.new(RailsQuery::Query) do
@@ -17,35 +18,37 @@ RSpec.describe 'Benchmarks' do
     country = Country.create!(name: 'Spain')
     region = Region.create!(name: 'Andalucía', country: country)
 
-    50.times do |n|
+    500.times do |n|
       User.create!(name: "Loop #{n}", lastname: 'AA', age: rand(16..90), region: region)
     end
+
+    # ActiveRecord::Base.logger = Logger.new($stdout)
   end
 
   def compare(block_a, block_b)
     measure_1 = (Benchmark.measure do
-      50.times { block_a.call.run.to_json }
+      50.times { block_a.call }
     end)
 
     measure_2 = (Benchmark.measure do
-      50.times { block_b.call.all.to_json }
+      50.times { block_b.call }
     end)
 
     # p "#{measure_1.real} / #{measure_2.real}"
     expect(measure_1.real).to be < measure_2.real
   end
 
-  it 'is faster when use select' do
+  xit 'is faster when use select' do
     compare(
-      -> { BenchmarkQuery.new.select(:name) },
-      -> { User.select(:name) }
+      -> { BenchmarkQuery.new.select(:name).run },
+      -> { User.select(:id, :name).to_a }
     )
   end
 
-  it 'is faster when use joined field' do
+  xit 'is faster when use joined field' do
     compare(
-      -> { BenchmarkQuery.new.select(:country_name) },
-      -> { User.joins(region: :country).select('countries.name') }
+      -> { BenchmarkQuery.new.select(:country_name).run },
+      -> { User.joins(region: :country).select(:id, 'countries.name').to_a }
     )
   end
 end

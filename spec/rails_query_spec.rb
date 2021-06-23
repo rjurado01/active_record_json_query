@@ -16,9 +16,15 @@ RSpec.describe RailsQuery do
       field :lastname, filter: :contain
       field :age
 
-      field :event_vs_user_event_id, join: :events_vs_users,
-                                     column: 'event_id',
-                                     count: 'events_count'
+      field :event_vs_user_event_id, join: :events_vs_users, column: 'event_id'
+
+      field :event_count, join: :events_vs_users,
+                          select: 'COUNT(events_vs_users.event_id)',
+                          group: true
+
+      field :event_points, join: {events_vs_users: :event},
+                           select: 'SUM(events.points)',
+                           group: true
 
       field :country_name, join: {region: :country}
 
@@ -61,8 +67,8 @@ RSpec.describe RailsQuery do
     type_1 = EventType.create!(name: 'Party')
     type_2 = EventType.create!(name: 'Meeting')
 
-    @event_1 = Event.create!(name: 'Funny Event', event_type_id: type_1.id)
-    @event_2 = Event.create!(name: 'Boring Event', event_type_id: type_2.id)
+    @event_1 = Event.create!(name: 'Funny Event', event_type_id: type_1.id, points: 2)
+    @event_2 = Event.create!(name: 'Boring Event', event_type_id: type_2.id, points: 2)
 
     EventVsUser.create(event_id: @event_1.id, user_id: @user_1.id)
     EventVsUser.create(event_id: @event_1.id, user_id: @user_2.id)
@@ -120,10 +126,15 @@ RSpec.describe RailsQuery do
       )
     end
 
-    it 'runs with select using count field' do
-      expect(UserQuery.new.select(:events_count).run).to eq(
+    it 'runs with select using agregate field' do
+      expect(UserQuery.new.select(:event_count, :event_points).run).to eq(
         [@user_1, @user_2].map do |u|
-          {id: u.id, name: u.name, events_count: u.events_vs_users.size}.stringify_keys
+          {
+            id: u.id,
+            name: u.name,
+            event_count: u.events_vs_users.size,
+            event_points: u.events_vs_users.sum { |x| x.event.points }
+          }.stringify_keys
         end
       )
     end

@@ -5,22 +5,24 @@ module RailsQuery
                 :column, # table column
                 :select, # sql select sentence to obtain field
                 :join, # ActiveRecord::QueryMethods.joins arguments
-                :count,
+                :group, # field require to apply a group by this field
                 :default # field is returned always
 
     def initialize(name, options)
       @name = name.to_s
       @table = options[:table]
       @column = options[:column]
+      @group = options[:group]
       @default = name == 'id' ? true : options[:default]
 
-      if (@join = options[:join])
-        initialize_join_field(options)
-      elsif options[:select]
+      if options[:select]
         @select = "#{ActiveRecord::Base.sanitize_sql(options[:select])} as #{name}"
+      end
+
+      if (@join = options[:join])
+        initialize_join_field
       else
-        @column ||= name
-        @select = column == name ? name : "#{path} as #{name}"
+        initialize_simple_field
       end
     end
 
@@ -30,18 +32,23 @@ module RailsQuery
 
     private
 
-    def initialize_join_field(options)
-      relation = join_relation(options[:join])
+    def initialize_simple_field
+      @column ||= name
+      @select ||= (column == name ? name : "#{path} as #{name}")
+    end
+
+    def initialize_join_field
+      relation = join_relation(@join)
 
       @table ||= relation.pluralize
+      @column ||= @name.remove("#{relation}_")
+      @select ||= "#{path} as #{name}"
+    end
 
-      if options[:count]
-        @count = options[:count].present?
-        @select = "count(#{path}) as #{name}"
-      else
-        @column ||= @name.remove("#{relation}_")
-        @select = "#{path} as #{name}"
-      end
+    def select_sql(select)
+      return nil unless select
+
+      "#{ActiveRecord::Base.sanitize_sql(select)} as #{name}"
     end
 
     # returns join last table
