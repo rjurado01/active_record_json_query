@@ -4,54 +4,91 @@ require 'spec_helper'
 RSpec.describe RailsQuery do
   before do
     stub_const('RegionQuery', Class.new(RailsQuery::Query) do
-      model Region
+      base_query Region
 
       field :name
     end)
 
     stub_const('UserQuery', Class.new(RailsQuery::Query) do
-      model User
+      base_query User.select(:name)
 
-      field :name, default: true
-      field :lastname, filter: :contain
+      field :name
+      field :lastname
       field :age
-
-      field :event_vs_user_event_id, join: :events_vs_users, column: 'event_id'
-
-      field :event_count, join: :events_vs_users,
-                          select: 'COUNT(events_vs_users.event_id)',
-                          group: true
-
-      field :event_points, join: {events_vs_users: :event},
-                           select: 'SUM(events.points)',
-                           group: true
-
-      field :country_name, join: {region: :country}
-
       field :region_id
 
-      field :fullname, select: "name || ' ' || lastname"
+      field :fullname do |query|
+        query.select("name || ' ' || lastname as fullname")
+      end
 
-      link_one :region, query: RegionQuery, key: :region_id
+      # field :event_vs_user_event_id, join: :events_vs_users, column: 'event_id'
 
-      method :now, ->(_row) { Time.new(2020).utc }
+      field :event_ids do |query|
+        query.joins(:events_vs_users).select('events_vs_users.event_id as event_ids')
+      end
 
-      filter :under_age, ->(_val) { where(age: 1..17) }
+      # field :event_count, join: :events_vs_users,
+      #                     select: 'COUNT(events_vs_users.event_id)',
+      #                     group: true
 
-      filter :age_gt, type: :gt, field: :age
-      filter :age_lt, type: :lt, field: :age
-      filter :age_range, type: :range, field: :age
+      field :event_count do |query|
+        query.joins(:events_vs_users)
+             .select('COUNT(events_vs_users.event_id) as event_count')
+             .group(:id)
+      end
+
+      # field :event_points, join: {events_vs_users: :event},
+      #                      select: 'SUM(events.points)',
+      #                      group: true
+
+      field :event_points do |query|
+        query.joins(events_vs_users: :event)
+             .select('SUM(events.points) as event_points')
+             .group(:id)
+      end
+
+      # field :country_name, join: {region: :country}
+
+      field :country_name do |query|
+        query.joins(region: :country).select('countries.name as country_name')
+      end
+
+      # link_one :region, query: RegionQuery, key: :region_id
+
+      field(:region,
+        as_json: {include: {region: {only: %i[id name]}}}
+      ) do |query|
+        query.select(:region_id).includes(:region)
+      end
+
+      filter :under_age do |query, _val|
+        query.where(age: 1..17)
+      end
+
+      filter :age_gt, operator: :gt, field: :age
+      filter :age_lt, operator: :lt, field: :age
+      filter :age_range, operator: :range, field: :age
+
+      def as_json(query)
+        options = {}
+
+        if @query_fields.include?(:region)
+          options.merge!(include: {region: {only: %i[id name]}})
+        end
+
+        query.as_json(options)
+      end
     end)
 
     stub_const('EventQuery', Class.new(RailsQuery::Query) do
-      model Event
+      base_query Event
 
       field :name
       field :date
-      field :event_type_name, join: :event_type
-      field :type_name, join: :event_type, table: 'event_types', column: 'name'
+      # field :event_type_name, join: :event_type
+      # field :type_name, join: :event_type, table: 'event_types', column: 'name'
 
-      link_many :users, query: UserQuery, key: :event_vs_user_event_id
+      # link_many :users, query: UserQuery, key: :event_vs_user_event_id
     end)
   end
 
@@ -89,45 +126,32 @@ RSpec.describe RailsQuery do
       expect(EventQuery.new.run).to eq([{'id' => 1}, {'id' => 2}])
     end
 
-    it 'runs with select' do
-      expect(UserQuery.new.select(:lastname, :age).run).to eq(
+    it 'runs with simple fields' do
+      expect(UserQuery.new(fields: %i[lastname age]).run).to eq(
         [@user_1, @user_2].map do |u|
           {id: u.id, name: u.name, lastname: u.lastname, age: u.age}.stringify_keys
         end
       )
     end
 
-    it 'runs with select using field with select option' do
-      expect(UserQuery.new.select(:fullname).run).to eq(
+    it 'runs with custom fields' do
+      expect(UserQuery.new(fields: [:fullname]).run).to eq(
         [@user_1, @user_2].map do |u|
           {id: u.id, name: u.name, fullname: "#{u.name} #{u.lastname}"}.stringify_keys
         end
       )
     end
 
-    it 'runs with select using method' do
-      expect(UserQuery.new.select(:now).run).to eq(
+    it 'runs with joined fields' do
+      expect(UserQuery.new(fields: %i[country_name]).run).to eq(
         [@user_1, @user_2].map do |u|
-          {id: u.id, name: u.name, now: Time.new(2020).utc}.stringify_keys
+          {id: u.id, name: u.name, country_name: u.region.country.name}.stringify_keys
         end
       )
     end
 
-    it 'runs with select using joined field' do
-      expect(EventQuery.new.select(:name, :event_type_name, :type_name).run).to eq(
-        [@event_1, @event_2].map do |e|
-          {
-            id: e.id,
-            name: e.name,
-            event_type_name: e.event_type.name,
-            type_name: e.event_type.name
-          }.stringify_keys
-        end
-      )
-    end
-
-    it 'runs with select using agregate field' do
-      expect(UserQuery.new.select(:event_count, :event_points).run).to eq(
+    it 'runs with agregate fields' do
+      expect(UserQuery.new(fields: %i[event_count event_points]).run).to eq(
         [@user_1, @user_2].map do |u|
           {
             id: u.id,
@@ -135,14 +159,6 @@ RSpec.describe RailsQuery do
             event_count: u.events_vs_users.size,
             event_points: u.events_vs_users.sum { |x| x.event.points }
           }.stringify_keys
-        end
-      )
-    end
-
-    it 'runs with select using 2 levels joined field' do
-      expect(UserQuery.new.select(:country_name).run).to eq(
-        [@user_1, @user_2].map do |u|
-          {id: u.id, name: u.name, country_name: u.region.country.name}.stringify_keys
         end
       )
     end
@@ -167,20 +183,16 @@ RSpec.describe RailsQuery do
       )
     end
 
-    it 'runs with include using belongs_to link' do
-      expect(UserQuery.new.include(:region).run).to eq(
-        [
+    it 'runs with include field using belongs_to' do
+      expect(UserQuery.new(fields: %i[region]).run).to eq(
+        [@user_1, @user_2].map do |u|
           {
-            'id' => @user_1.id,
-            'name' => @user_1.name,
-            'region' => {'id' => @user_1.region.id}
-          },
-          {
-            'id' => @user_2.id,
-            'name' => @user_2.name,
-            'region' => {'id' => @user_2.region.id}
+            'id' => u.id,
+            'name' => u.name,
+            'region_id' => u.region.id,
+            'region' => {'id' => u.region.id, 'name' => u.region.name}
           }
-        ]
+        end
       )
     end
 
