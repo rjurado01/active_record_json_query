@@ -4,11 +4,12 @@ Layer above ActiveRecord to define your models query interface.
 
 ### Features
 
-* Define fields
-* Define filters
-* Define links
-* Define methods
-* Get database response directly without model instances
+Extract your query logic from models to a query class using:
+
+* Fields
+* Filters
+* Orders
+* Pagination
 
 ## Installation
 
@@ -26,45 +27,66 @@ Or install it yourself as:
 
     $ gem install rails_query
 
-## Example
+## Usage
 
 ```ruby
 class UserQuery < RailsQuery::Query
-  model User
+  init User
 
-  field :name, default: true
-  field :lastname, filter: :contain
+  ## FIELDS
+
+  field :name
+  field :lastname
   field :age
 
-  field :country_name, join: {region: :country}
+  field :fullname do |query|
+    query.select("name || ' ' || lastname as fullname")
+  end
 
-  field :fullname, select: "name || ' ' || lastname"
+  field :country_name do |query|
+    query.joins(region: :country).select('countries.name')
+  end
 
-  field :region_id
+  field(
+    :region, # includes object
+    as_json: {include: {region: {only: %i[id name]}}}
+  ) do |query|
+    query.select(:region_id).includes(:region)
+  end
 
-  link_one :region, query: RegionQuery, key: :region_id
+  ## FILTERS
 
-  method :now, ->(_row) { Time.new(2020).utc }
+  filter :under_age do |query, _val|
+    query.where(age: 1..17)
+  end
 
-  filter :under_age, ->(_val) { where(age: 1..17) }
+  filter :country_name do |query, val|
+    query.joins(region: :country).where(countries: {name: val})
+  end
 
-  filter :age_gt, type: :gt, field: :age
-  filter :age_lt, type: :lt, field: :age
-  filter :age_range, type: :range, field: :age
+  filter :lastname, operator: :contain
+  filter :age_gt, operator: :gt, column: :age
+  filter :age_lt, operator: :lt, column: :age
+  filter :age_range, operator: :range, column: :age
+
+  ## ORDER
+
+  order :name
+
+  order :country_name do |query, dir|
+    query.joins(region: :country).order('countries.name' => dir)
+  end
 end
 
-UserQuery.new.select(:country_name)
-             .include(:region)
-             .filtrate(under_age: true)
-             .page(2)
-             .limit(1)
-             .order(name: 'desc')
-             .run
+query = UserQuery.new({
+  fields: %i[name, country_name, region],
+  filters: {under_age: true, age_gt: 18},
+  order: {country_name: 'asc', name: 'desc'},
+  page: {number: 2, size: 1}
+})
+
+result = {data: query.run, meta: query.meta}
 ```
-
-## Usage
-
-TODO: Write usage instructions here
 
 ## Development
 

@@ -1,50 +1,50 @@
 module RailsQuery
   class Filter
-    TYPES = %i[equal contain gt lt range].freeze
+    OPERATORS = %i[equal contain gt lt range].freeze
 
-    attr_reader :name, :type, :filter
+    attr_reader :name, :operator, :block
 
-    def initialize(name, options)
+    def initialize(name, options, block)
       @name = name
 
-      if options.is_a?(Proc)
-        @type = :proc
-        @filter = options
+      if block
+        @block = block
       else
-        type = options[:type]&.to_sym || :equal
-        @type = TYPES.include?(type) ? type : :equal
-        @field = options[:field]
+        @operator = options[:operator]
+        @column = options[:column] || name
 
-        raise StandardError.new "Field :#{name} not found to apply filter" unless (@field)
+        unless OPERATORS.include?(@operator)
+          raise StandardError, "Filter #{name}: #{@operator} operator not supported"
+        end
       end
     end
 
-    def apply(ar_query, val)
-      if @type == :proc
-        ar_query.instance_exec(val, &filter)
+    def apply(query, val)
+      if @block
+        instance_exec(query, val, &block)
       else
-        public_send("apply_#{@type}", ar_query, @field.path, val)
+        public_send("apply_#{@operator}", query, @column, val)
       end
     end
 
-    def apply_equal(ar_query, path, val)
-      ar_query.where(path => val)
+    def apply_equal(query, column, val)
+      query.where(column => val)
     end
 
-    def apply_contain(ar_query, path, val)
-      ar_query.where("#{path} LIKE '%#{val}%'")
+    def apply_contain(query, column, val)
+      query.where("#{column} LIKE '%#{val}%'")
     end
 
-    def apply_gt(ar_query, path, val)
-      ar_query.where("#{path} > ?", val)
+    def apply_gt(query, column, val)
+      query.where("#{column} > ?", val)
     end
 
-    def apply_lt(ar_query, path, val)
-      ar_query.where("#{path} < ?", val)
+    def apply_lt(query, column, val)
+      query.where("#{column} < ?", val)
     end
 
-    def apply_range(ar_query, path, val)
-      ar_query.where(path => val.is_a?(Range) ? val : val[0]..val[1])
+    def apply_range(query, column, val)
+      query.where(column => val.is_a?(Range) ? val : val[0]..val[1])
     end
   end
 end

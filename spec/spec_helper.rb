@@ -63,6 +63,7 @@ class Event < ApplicationRecord
   belongs_to :event_type
 
   has_many :events_vs_users, class_name: 'EventVsUser'
+  has_many :users, class_name: 'User', through: :events_vs_users
 end
 
 class EventType < ApplicationRecord
